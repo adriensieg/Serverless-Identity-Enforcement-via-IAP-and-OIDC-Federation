@@ -70,12 +70,12 @@ sequenceDiagram
     participant SA as GCP Service Account
     participant API as GCP API
 
-    Note right of LB: ailab.com → LB (URL Map, Cert) → IAP → Cloud Run
+    Note right of LB: ailab.com to LB (URL Map, Cert) to IAP to Cloud Run
 
     User->>LB: GET https://ailab.com/service-desk
     LB->>IAP: Forward to IAP-protected backend
     IAP-->>LB: 302 redirect to IAP auth endpoint
-    LB-->>User: 302 → https://iap.googleusercontent.com/_/auth?client_id=...
+    LB-->>User: 302 to https://iap.googleusercontent.com/_/auth?client_id=...
 
     User->>IAP: GET /_/auth?client_id=...
     IAP->>IdP: OIDC /authorize (scope=openid email profile)
@@ -108,8 +108,8 @@ sequenceDiagram
     end
     CloudRun->>LB: Response
     LB->>User: Response (HTML/JSON)
-    Note over IdP,App: IdP callback never reaches App; IAP completes OIDC exchange
-    Note over Admin,API: === WORKFORCE IDENTITY FEDERATION ===
+    Note over IdP,App: IdP callback never reaches App - IAP completes OIDC exchange
+    Note over Admin,API: WORKFORCE IDENTITY FEDERATION
     Admin->>IdP: Authenticate via Azure Entra
     IdP-->>Admin: Return signed assertion
     Admin->>STS: exchangeToken with Azure assertion
@@ -121,7 +121,7 @@ sequenceDiagram
     API-->>Admin: Short-lived SA OAuth2 token
     Admin->>API: Use SA token for gcloud / API
     Note right of WIF: No Google accounts created<br/>Azure Entra identity federates into GCP IAM
-    Note over User,API: Security Checklist:<br/>• Cloud Run ingress = LB only<br/>• LB uses Serverless NEG<br/>• IAP handles OIDC + session cookies<br/>• App validates IAP JWT<br/>• WIF for IAM federation (no Identity Platform)
+    Note over User,API: Security Checklist:<br/>Cloud Run ingress = LB only<br/>LB uses Serverless NEG<br/>IAP handles OIDC + session cookies<br/>App validates IAP JWT<br/>WIF for IAM federation (no Identity Platform)
 ```
 
 ## Summary
