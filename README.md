@@ -72,13 +72,11 @@ sequenceDiagram
 
     Note right of LB: ailab.com → LB (URL Map, Cert) → IAP → Cloud Run
 
-    %% Step 1: Initial Request
     User->>LB: GET https://ailab.com/service-desk
     LB->>IAP: Forward to IAP-protected backend
     IAP-->>LB: 302 redirect to IAP auth endpoint
     LB-->>User: 302 → https://iap.googleusercontent.com/_/auth?client_id=...
 
-    %% Step 2: IAP to IdP Authentication
     User->>IAP: GET /_/auth?client_id=...
     IAP->>IdP: OIDC /authorize (scope=openid email profile)
     IdP-->>User: 302 login page (if not logged in)
@@ -87,19 +85,16 @@ sequenceDiagram
     User->>LB: GET /_gcp_gatekeeper?code=AUTH_CODE
     LB->>IAP: Forward to IAP callback
 
-    %% Step 3: Token Exchange
     IAP->>IdP: POST /token (grant_type=authorization_code)
     IdP-->>IAP: id_token (JWT) + access_token
     IAP-->>User: 302 redirect to original URL + Set-Cookie: IAP_SID=SESSION
 
-    %% Step 4: Authenticated Request
     User->>LB: GET /service-desk (with IAP_SID cookie)
     LB->>IAP: Forward request (includes cookie)
     IAP->>CloudRun: Forward with IAP headers
     Note over IAP,CloudRun: Headers: X-Goog-Authenticated-User-Email<br/>X-Goog-Authenticated-User-ID<br/>x-goog-iap-jwt-assertion
     Note over CloudRun,App: Cloud Run ingress = internal + LB only
 
-    %% Step 5: JWT Validation in App
     CloudRun->>App: Deliver request with headers
     App->>GCP: Fetch IAP public keys (JWKS) if needed
     GCP-->>App: Return JWKS
@@ -113,10 +108,7 @@ sequenceDiagram
     end
     CloudRun->>LB: Response
     LB->>User: Response (HTML/JSON)
-
     Note over IdP,App: IdP callback never reaches App; IAP completes OIDC exchange
-
-    %% Workforce Identity Federation Section
     Note over Admin,API: === WORKFORCE IDENTITY FEDERATION ===
     Admin->>IdP: Authenticate via Azure Entra
     IdP-->>Admin: Return signed assertion
@@ -129,7 +121,6 @@ sequenceDiagram
     API-->>Admin: Short-lived SA OAuth2 token
     Admin->>API: Use SA token for gcloud / API
     Note right of WIF: No Google accounts created<br/>Azure Entra identity federates into GCP IAM
-
     Note over User,API: Security Checklist:<br/>• Cloud Run ingress = LB only<br/>• LB uses Serverless NEG<br/>• IAP handles OIDC + session cookies<br/>• App validates IAP JWT<br/>• WIF for IAM federation (no Identity Platform)
 ```
 
