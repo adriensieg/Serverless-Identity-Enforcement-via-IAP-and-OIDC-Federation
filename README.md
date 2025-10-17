@@ -64,6 +64,11 @@ sequenceDiagram
     participant CloudRun as Cloud Run (Serverless NEG)
     participant App as App Container
     participant GCP as Google IAP Keys / STS
+    participant Admin as Admin (Azure AD user)
+    participant STS as Google STS
+    participant WIF as Workforce Identity Federation
+    participant SA as GCP Service Account
+    participant API as GCP API
 
     Note right of LB: ailab.com → LB (URL Map, Cert) → IAP → Cloud Run
 
@@ -112,12 +117,7 @@ sequenceDiagram
     Note over IdP,App: IdP callback never reaches App; IAP completes OIDC exchange
 
     %% Workforce Identity Federation Section
-    participant Admin as Admin (Azure AD user)
-    participant STS as Google STS
-    participant WIF as Workforce Identity Federation
-    participant SA as GCP Service Account
-    participant API as GCP API
-
+    Note over Admin,API: === WORKFORCE IDENTITY FEDERATION ===
     Admin->>IdP: Authenticate via Azure Entra
     IdP-->>Admin: Return signed assertion
     Admin->>STS: exchangeToken with Azure assertion
