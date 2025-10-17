@@ -57,101 +57,76 @@ Zero-Trust OIDC Gateway: Azure Entra ID to Cloud Run via IAP
 ```mermaid
 sequenceDiagram
     autonumber
-    %% Participants
     participant User as User (Browser)
-    participant LB as Global HTTPS Load Balancer (Front Door + URL Map + Cert)
-    participant IAP as Identity-Aware Proxy (IAP)
-    participant IdP as Azure Entra ID (OIDC Provider)
-    participant CloudRun as Cloud Run (Serverless NEG backend)
-    participant App as App Container (your code)
-    participant GCP as Google (IAP JWT public keys / STS)
-    rect rgb(240,248,255)
-      Note right of LB: LB routes ailab.com traffic → Serverless NEG → Cloud Run\nLB terminates TLS, passes to IAP when IAP enabled on backend
-    end
+    participant LB as HTTPS Load Balancer
+    participant IAP as Identity-Aware Proxy
+    participant IdP as Azure Entra ID (OIDC)
+    participant CloudRun as Cloud Run (Serverless NEG)
+    participant App as App Container
+    participant GCP as Google IAP Keys / STS
 
-    %% 0. Initial user request (unauthenticated)
+    Note right of LB: ailab.com → LB (URL Map, Cert) → IAP → Cloud Run
+
+    %% Step 1
     User->>LB: GET https://ailab.com/service-desk
-    LB->>IAP: Forward request to IAP (IAP protected backend)
-    IAP->>LB: 302 Redirect to IAP auth endpoint (start auth)
-    LB->>User: 302 → https://iap.example.com/_/auth?client_id=...&redirect_uri=https://ailab.com/_gcp_gatekeeper
-    Note over User,IdP: Browser follows redirect to IAP which proxies OIDC to IdP
+    LB->>IAP: Forward to IAP-protected backend
+    IAP-->>LB: 302 redirect to IAP auth endpoint
+    LB-->>User: 302 → https://iap.googleusercontent.com/_/auth?client_id=...
 
-    %% 1. IAP initiates OIDC authorization request to Azure Entra
-    User->>IAP: Browser GET /_/auth?client_id=... (IAP)
-    IAP->>IdP: Authorization Request (OIDC /authorize)\n - response_type=code\n - client_id=IAP-client\n - redirect_uri=IAP callback\n - scope=openid email profile groups
-    IdP->>User: 302 -> User login page (if not logged in)
-    User->>IdP: User enters credentials / MFA (Azure Entra)
-    IdP->>User: POST /authorize -> 302 redirect with ?code=AUTH_CODE to IAP callback URL (LB endpoint)
-    User->>LB: Redirect with code to https://ailab.com/_gcp_gatekeeper
-    LB->>IAP: Session callback forwarded to IAP
+    %% Step 2: IAP → IdP
+    User->>IAP: GET /_/auth?client_id=...
+    IAP->>IdP: OIDC /authorize (scope=openid email profile)
+    IdP-->>User: 302 login page (if not logged in)
+    User->>IdP: Enter credentials / MFA
+    IdP-->>User: 302 redirect with ?code=AUTH_CODE
+    User->>LB: GET /_gcp_gatekeeper?code=AUTH_CODE
+    LB->>IAP: Forward to IAP callback
 
-    %% 2. IAP exchanges code for tokens with Azure Entra
-    IAP->>IdP: Token Exchange (/token): grant_type=authorization_code, code=AUTH_CODE\n -> returns { id_token (JWT), access_token, refresh_token? }
-    IdP-->>IAP: id_token (JWT OIDC), access_token (OAuth2)
-    Note right of IAP: IAP validates id_token signature / nonce / exp etc.
+    %% Step 3: Token exchange
+    IAP->>IdP: POST /token (grant_type=authorization_code)
+    IdP-->>IAP: id_token (JWT) + access_token
+    IAP-->>User: 302 redirect to original URL + Set-Cookie: IAP_SID=SESSION
 
-    %% 3. IAP establishes user session + sets cookie
-    IAP->>User: 302 -> original URL (https://ailab.com/service-desk)\n Set-Cookie: IAP_SID=SESSION; HttpOnly; Secure; SameSite=None
-    User->>LB: GET /service-desk (cookie present)
-    LB->>IAP: Forward request (cookie included)
+    %% Step 4: Authenticated request
+    User->>LB: GET /service-desk (with IAP_SID cookie)
+    LB->>IAP: Forward request (includes cookie)
+    IAP->>CloudRun: Forward authenticated request\nHeaders:\n- X-Goog-Authenticated-User-Email\n- X-Goog-Authenticated-User-ID\n- x-goog-iap-jwt-assertion (signed JWT)
+    Note over CloudRun,App: Cloud Run ingress = internal + LB only
 
-    %% 4. IAP creates signed assertion for backend and forwards
-    Note right of IAP: On every proxied request IAP either:\n - creates x-goog-iap-jwt-assertion (signed JWT) OR\n - injects convenience headers (X-Goog-Authenticated-User-Email, X-Goog-Authenticated-User-ID)
-    IAP->>CloudRun: HTTP/1.1 GET /service-desk\n Headers:\n  - Host: ailab.com\n  - Cookie: IAP_SID=...\n  - X-Goog-Authenticated-User-Email: user@domain.com\n  - X-Goog-Authenticated-User-ID: accounts.google.com:................................\n  - x-goog-iap-jwt-assertion: <IAP_JWT> (signed JWT)
-    Note over CloudRun,App: Cloud Run ingress restricted to LB/IAP only\n (Cloud Run configured to deny direct run.app access)
-
-    %% 5. Cloud Run / App validates IAP JWT and extracts identity
-    CloudRun->>App: Deliver request to container (same headers)
-    App->>GCP: Fetch IAP public keys (cached) and validate x-goog-iap-jwt-assertion\n Validate:\n  - signature using Google's public key\n  - iss == https://cloud.google.com/iap\n  - aud == expected_audience (IAP client id / backend service id)\n  - exp, iat, email presence
-    GCP-->>App: public keys (jwks) (or App uses local cache)
-    alt JWT valid
-      App-->>App: Extract claims: email, sub, name, groups, locale
-      App->>App: Map claims to internal identity + apply RLS\n  - Use email / groups / custom claims to filter DB rows
-    else invalid
-      App->>CloudRun: 401/403 (reject)
+    %% Step 5: Validation in App
+    CloudRun->>App: Deliver request with headers
+    App->>GCP: Fetch IAP public keys (JWKS) if needed
+    GCP-->>App: Return JWKS
+    App-->>App: Validate x-goog-iap-jwt-assertion:\n- signature OK\n- iss=https://cloud.google.com/iap\n- aud=backend_service_id\n- exp valid
+    alt Valid JWT
+        App-->>App: Extract claims (email, sub, groups)\nApply RLS / access control
+    else Invalid JWT
+        App-->>CloudRun: 401/403 Unauthorized
     end
+    App->>CloudRun: 200 OK (if authorized)
+    CloudRun->>LB: 200 OK
+    LB->>User: 200 OK (HTML / JSON)
 
-    %% 6. Application response (authenticated)
-    App->>CloudRun: 200 OK + content
-    CloudRun->>LB: Response
-    LB->>User: 200 OK (HTML / API response)
+    Note over IdP,App: IdP callback never reaches App; IAP completes OIDC exchange.
 
-    %% 7. IdP callback special-case avoided because IAP handles OIDC
-    Note over IdP,App: IdP redirect/callback never needs to reach App. IAP completes the code exchange and only forwards authenticated requests.
+    %% Workforce Identity Federation
+    participant Admin as Admin (Azure AD user)
+    participant STS as Google STS
+    participant WIF as Workforce Identity Federation
+    participant SA as GCP Service Account
+    participant API as GCP API
 
-    %% ---------------------------
-    %% Workforce Identity Federation (WIF) / Admin Programmatic Flow
-    %% ---------------------------
-    rect rgb(255,248f0)
-      Note left of User: Admin wants gcloud / API access using Azure Entra identity\n (no Google account creation)
-    end
-    participant Admin as Admin (Azure AD User / Service Principal)
-    participant STS as Google STS (token exchange)
-    participant WIF as Workforce Identity Pool & Provider (GCP)
-    participant SA as GCP Service Account (to impersonate)
-    participant GCP_API as Google APIs
+    Admin->>IdP: Authenticate via Azure Entra\n→ get SAML/OIDC assertion
+    IdP-->>Admin: Return signed assertion
+    Admin->>STS: exchangeToken(grant_type=token-exchange,\nsubject_token=<Azure_assertion>,\naudience=workforcePool/provider)
+    STS->>WIF: Validate provider config (trust Azure Entra)
+    STS-->>Admin: short-lived Google access_token
+    Admin->>API: iamcredentials.generateAccessToken\n(using access_token to impersonate SA)
+    API-->>Admin: Short-lived SA OAuth2 token
+    Admin->>API: Use SA token for gcloud / API
+    Note right of WIF: No Google accounts created;\nAzure Entra identity federates into GCP IAM
 
-    %% Admin obtains a SAML/OIDC token from Azure Entra
-    Admin->>IdP: Authenticate (Azure AD) -> obtain SAML/OIDC assertion (SAML token or OIDC id_token)
-    IdP-->>Admin: SAML/OIDC assertion (signed by Azure)
-
-    %% Admin exchanges assertion for GCP access token using STS & WIF
-    Admin->>STS: POST exchangeToken\n - grant_type=urn:ietf:params:oauth:grant-type:token-exchange\n - subject_token_type=urn:ietf:params:oauth:token-type:jwt (or SAML2)\n - subject_token=<Azure_assertion>\n - audience=//iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workforcePools/POOL_ID/providers/PROVIDER_ID
-    STS->>WIF: Validate provider config (workforcePool + provider mapping)\n (configured to trust Azure Entra tokens)
-    STS-->>Admin: short-lived Google access token (oauth2 access_token) scoped to 'iam' to allow impersonation
-    Note right of STS: This token is not a long-lived Google account credential
-
-    %% Admin impersonates a Service Account (if configured)
-    Admin->>GCP_API: call iamcredentials.generateAccessToken\n - authorization: Bearer <access_token_from_STS>\n - resource: projects/-/serviceAccounts/sa@project.iam.gserviceaccount.com\n - delegates: []\n - scope: https://www.googleapis.com/auth/cloud-platform
-    GCP_API-->>Admin: short-lived OAuth2 access token for the SA (iss: https://accounts.google.com)
-    Admin->>GCP_API: Use SA token to call GCP APIs (console, gcloud, etc.)
-    Note over WIF,SA: Admin actions are auditable in GCP — and no Google accounts were created.
-
-    %% End
-    Note over all: Security checks & configuration checklist:\n  - Cloud Run ingress = "internal and load balancer" (blocks run.app)\n  - LB uses Serverless NEG -> Cloud Run (per service)\n  - IAP enabled on LB backend (IAP handles OIDC & cookies)\n  - IAP injects x-goog-iap-jwt-assertion + X-Goog-Authenticated-* headers\n  - App MUST validate the IAP JWT cryptographically (don't trust headers alone)\n  - For admin access, configure Workforce Identity Pools + Provider for Azure Entra\n  - Use STS token exchange + service-account impersonation for short-lived credentials
-
-    %% Footer note
-    Note right of App: RLS enforcement:\n  - Extract email / groups from validated IAP JWT\n  - Map to app roles and DB RLS policies\n  - Query DB with principal email claim or use DB row policies per group/role
+    Note over all: Security checklist:\n- Cloud Run ingress = LB only\n- LB uses Serverless NEG\n- IAP handles OIDC + session cookies\n- App validates IAP JWT\n- WIF used for IAM federation (no Identity Platform)
 ```
 
 ## Summary
