@@ -25,6 +25,7 @@ Zero-Trust OIDC Gateway: Azure Entra ID to Cloud Run via IAP
 
 ## Problem Statement
 - Cloud Run’s **ingress restriction** causes **403 errors** for **IdP callback requests** (`/auth/login`), because the service blocks **unauthenticated requests before the OIDC flow completes**.
+    - Cloud Run’s **ingress** is **internal + Load Balancer only**, so it **rejects requests** that **don’t already have a valid IAP session**.
 - Current setup **cannot complete the OIDC redirect cycle within the app itself** — **the callback is never seen by the container due to ingress policy**.
 - You need to maintain both:
     - **Public accessibility via Load Balancer**, and
