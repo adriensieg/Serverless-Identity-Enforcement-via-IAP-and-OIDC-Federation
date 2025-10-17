@@ -152,12 +152,22 @@ sequenceDiagram
     - Exchange assertion at Google STS/WIF to receive a short-lived Google access token.
     - Optionally impersonate a Service Account (iamcredentials.generateAccessToken) to get SA-scoped short-lived credentials.
     - Use these for gcloud, API, or admin actions — avoids creating Google-managed accounts and abides by your no-Identity-Platform constraint.
+ 
+## How IAP Works (High-Level — Google Cloud Example)
+
+1. **User Request**: A user attempts to access an application URL protected by IAP.
+2. **Redirection to Identity Provider**: IAP **intercepts the request** and **redirects the user to our configured identity provider** (~~e.g., Google Sign-In~~) if they don’t have **a valid session**.
+3. **Authentication**: The user authenticates with the identity provider.
+4. **Token & Identity Assertion**: Upon successful authentication, the identity provider **issues an identity token to IAP**.
+5. **Authorization Check**: IAP **verifies the user’s identity** and checks against **IAM policies** to determine **if they are authorized to access the requested resource**. It can also check against **Access Context Manager policies**.
+6. **Request Forwarding (with Identity)**: If authorized, IAP **forwards the request to the backend application**. Crucially, IAP adds **signed headers** (e.g., `X-Goog-Authenticated-User-Email`, `X-Goog-Authenticated-User-Id`, `X-Goog-IAP-JWT-Assertion`) containing the **verified user's identity**.
+7.	**Application Logic (Optional)**: Your application can (and often should) **use these headers for further fine-grained**, **in-app authorization** or **personalization**.
+8.	**Backend Firewall**: Our backend service (e.g., GCE instances, App Engine, GKE) should be **firewalled to only accept traffic from IAP’s known IP ranges** or its specific proxy mechanism.
 
 ## Bibliography
 - https://medium.com/google-cloud/nuts-and-bolts-of-negs-network-endpoint-groups-in-gcp-35b0d06f4691
 - https://medium.com/google-cloud/fortifying-your-cloud-zero-trust-with-identity-aware-proxy-iap-ba4a69124e40
 
-<img width="468" height="53" alt="image" src="https://github.com/user-attachments/assets/5eaa9a9e-11b3-49dd-a7ed-efc904bc21e0" />
 
 
 
