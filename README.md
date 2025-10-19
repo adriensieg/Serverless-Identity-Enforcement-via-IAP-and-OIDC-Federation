@@ -113,13 +113,13 @@ User → HTTPS LB (TLS termination) → IAP (auth) → Serverless NEG → Cloud 
  - `x-goog-iap-jwt-assertion` – signed JWT assertion with verified user claims.
    
 - Cloud Run services must:
- - Validate the JWT using Google’s public keys (JWKS).
+ - **Validate** the JWT using Google’s public keys (JWKS).
  - Check **issuer**, **audience**, **expiration**, and **email/sub claims**.
  - Use claims for **RLS** and **access control decisions**.
 
 ## Security Enforcement
-- Cloud Run ingress policy ensures only the Load Balancer/IAP can reach the service.
-- Direct access via run.app URLs is completely denied.
+- Cloud Run **ingress policy** ensures only the **Load Balancer/IAP can reach the service**.
+- Direct access via `run.app` URLs is **completely denied**.
 - IAP handles authentication externally, preventing **“403-before-OIDC” issues** — apps receive **only validated**, **identity-bearing requests**.
 - **Session SSO managed** entirely by IAP; cookies are **secure**, **domain-bound**, and **non-extractable by apps**.
 
