@@ -1,6 +1,21 @@
 # Serverless Identity Enforcement via IAP and OIDC WIF Federation with Azure Entra ID
 Zero-Trust OIDC Gateway: Azure Entra ID to Cloud Run via IAP
 
+- [OIDC + IAP Problem Explained](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#oidc--iap-problem-explained)
+- [What's Identity Aware Proxy?](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#whats-identity-aware-proxy)
+ - [How IAP Works (High-Level — Google Cloud Example)]
+- [Why do I need Workforce Identity Federation?](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#why-do-i-need-workforce-identity-federation)
+- [Architecture Overview](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#architecture-overview)
+ - [Context and Requirements](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#context-and-requirements)
+ - [Network and Access Architecture](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#network-and-access-architecture)
+ - [Authentication and Authorization via IAP](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#authentication-and-authorization-via-iap)
+ - [Identity Propagation to Cloud Run](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#identity-propagation-to-cloud-run)
+ - [Security Enforcement](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#security-enforcement)
+ - [Workforce Identity Federation (WIF) Integration](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#workforce-identity-federation-wif-integration)
+- [Flow](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#flow)
+- [Summary](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#summary)
+- [Bibliography](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#bibliography)
+
 ## OIDC + IAP Problem Explained
 We cannot implement **OIDC authentication** inside **our Cloud Run app** when **IAP is enabled** because of a *chicken-and-egg problem*:
 IAP handles authentication **BEFORE** Cloud Run. **IAP intercepts all requests at the Load Balancer**
@@ -43,29 +58,22 @@ IAP handles authentication **BEFORE** Cloud Run. **IAP intercepts all requests a
  - **Map external identities** - Configure how Azure Entra ID users/groups map to Google Cloud principals
  - **Authenticate without Cloud Identity** - Users sign in with their Azure credentials, and Google Cloud recognizes them through federation
 
+**IAP handles the OIDC flow for us!** We don't need to implement it in our app.
+- **IAP** acts as the **OIDC client**
+- When a user hits our app, **IAP intercepts the request**
+- IAP redirects them to **authenticate with Azure Entra ID** (via **Workforce Identity Federation**)
+- **Azure authenticates the user** and returns **tokens**
+- **IAP validates** everything and handles the **token exchange**
+- If authorized, IAP forwards the request to our app with **identity headers**
+- Our app receives:
+ - The **request already authenticated**
+ - **Identity information in HTTP headers** (like `X-Goog-IAP-JWT-Assertion`)
+ - We can optionally validate the **IAP JWT** if we want extra security, but the heavy lifting is done
 
-IAP handles the OIDC flow for you! You don't need to implement it in your app.
-Here's what happens:
-Fully managed by IAP:
-
-IAP acts as the OIDC client
-When a user hits your app, IAP intercepts the request
-IAP redirects them to authenticate with Azure Entra ID (via Workforce Identity Federation)
-Azure authenticates the user and returns tokens
-IAP validates everything and handles the token exchange
-If authorized, IAP forwards the request to your app with identity headers
-
-Your app receives:
-
-The request already authenticated
-Identity information in HTTP headers (like X-Goog-IAP-JWT-Assertion)
-You can optionally validate the IAP JWT if you want extra security, but the heavy lifting is done
-
-What you configure (not implement):
-
-Set up Workforce Identity Federation with Azure Entra ID in Google Cloud
-Configure IAP to use that federation
-Set IAP access policies (who can access what)
+**What you configure (not implement)**:
+- Set up **Workforce Identity Federation with Azure Entra ID in Google Cloud**
+- Configure **IAP to use that federation**
+- **Set IAP access policies (who can access what)**
 
 # Architecture Overview
 ## Context and Requirements
@@ -83,9 +91,9 @@ Set IAP access policies (who can access what)
 - **User identity** (email, groups) must be available to backend apps for Row-Level Security (RLS) and personalization.
 
 ## Network and Access Architecture
-- Each Cloud Run service has Ingress restricted to “Internal + Load Balancer” — denies direct Internet access.
-- A Global HTTPS Load Balancer (GCLB) fronts all services using Serverless Network Endpoint Groups (NEGs).
-- The domain (ailab.com) routes through the GCLB using a Google-managed SSL certificate and URL map for path-based routing.
+- Each Cloud Run service has **Ingress restricted** to `“Internal + Load Balancer”` — **denies direct Internet access**.
+- A **Global HTTPS Load Balancer (GCLB)** fronts all services using **Serverless Network Endpoint Groups (NEGs)**.
+- The **domain (ailab.com)** routes through the GCLB using a **Google-managed SSL certificate** and **URL map** for **path-based routing**.
 - All traffic flows through this path:
 ```
 User → HTTPS LB (TLS termination) → IAP (auth) → Serverless NEG → Cloud Run → Container.
@@ -102,27 +110,27 @@ User → HTTPS LB (TLS termination) → IAP (auth) → Serverless NEG → Cloud 
 - Only authenticated and authorized requests are forwarded to Cloud Run.
 
 ## Identity Propagation to Cloud Run
-- IAP injects signed identity headers:
+- IAP injects **signed identity headers**:
  - `X-Goog-Authenticated-User-Email` – user email (for convenience).
  - `X-Goog-Authenticated-User-ID` – unique user identifier.
  - `x-goog-iap-jwt-assertion` – signed JWT assertion with verified user claims.
    
 - Cloud Run services must:
  - Validate the JWT using Google’s public keys (JWKS).
- - Check issuer, audience, expiration, and email/sub claims.
- - Use claims for RLS and access control decisions.
+ - Check **issuer**, **audience**, **expiration**, and **email/sub claims**.
+ - Use claims for **RLS** and **access control decisions**.
 
 ## Security Enforcement
-Cloud Run ingress policy ensures only the Load Balancer/IAP can reach the service.
-Direct access via run.app URLs is completely denied.
-IAP handles authentication externally, preventing “403-before-OIDC” issues — apps receive only validated, identity-bearing requests.
-Session SSO managed entirely by IAP; cookies are secure, domain-bound, and non-extractable by apps.
+- Cloud Run ingress policy ensures only the Load Balancer/IAP can reach the service.
+- Direct access via run.app URLs is completely denied.
+- IAP handles authentication externally, preventing **“403-before-OIDC” issues** — apps receive **only validated**, **identity-bearing requests**.
+- **Session SSO managed** entirely by IAP; cookies are **secure**, **domain-bound**, and **non-extractable by apps**.
 
 ## Workforce Identity Federation (WIF) Integration
-- Azure Entra users authenticate via OIDC/SAML.
-- WIF exchanges the Azure assertion for a short-lived Google STS token.
-- Optional Service Account impersonation can grant scoped access to Google APIs without native Google accounts.
-- Enables full identity continuity across Azure and Google without duplicating users in Cloud Identity.
+- **Azure Entra users** authenticate via **OIDC/SAML**.
+- **WIF exchanges** the **Azure assertion** for a **short-lived Google STS token**.
+- Optional **Service Account impersonation** can grant scoped access to Google APIs without native Google accounts.
+- Enables full **identity continuity** across Azure and Google without duplicating users in Cloud Identity.
 
 # Flow
 
