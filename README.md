@@ -8,7 +8,7 @@ Zero-Trust OIDC Gateway: Azure Entra ID to Cloud Run via IAP
     - https://ailab.com/login
     - https://ailab.com/logout
     - https://ailab.com/service-desk
-    - https://ailab.com/marketing-immersion
+    - https://ailab.com/marketing-immersion 
     - https://ailab.com/asset-scanning 
 - Each service has **Ingress restricted** to “internal + load balancer” — **direct external access to run.app URLs is denied**.
 - All applications are fronted by a **Global HTTPS Load Balancer** configured with **Serverless Network Endpoint Groups** (**NEGs**) pointing to the respective **Cloud Run services**.
