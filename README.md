@@ -2,7 +2,7 @@
 Zero-Trust OIDC Gateway: Azure Entra ID to Cloud Run via IAP
 
 ## Architecture Overview
-
+ 
 - Multiple **Dockerized applications** are deployed on Google **Cloud Run**.
     - https://ailab.com/ - this is the landing page
     - https://ailab.com/login
