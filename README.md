@@ -33,7 +33,7 @@ IAP handles authentication **BEFORE** Cloud Run. **IAP intercepts all requests a
 8.	**Backend Firewall**: Our backend service (e.g., GCE instances, App Engine, GKE) should be **firewalled to only accept traffic from IAP’s known IP ranges** or its specific proxy mechanism.
 
 ## Why do I need Workforce Identity Federation? 
-(“I don’t want my internal users synced to Google”?)[https://medium.com/@oluakin/implementing-external-authentication-using-identity-aware-proxy-iap-quick-tips-093d60c8a9b4]
+[“I don’t want my internal users synced to Google”?](https://medium.com/@oluakin/implementing-external-authentication-using-identity-aware-proxy-iap-quick-tips-093d60c8a9b4)
 
 - **IAP** needs to **understand identities** in **Google Cloud's terms**.
 - It needs to **map external identities** to **Google Cloud principals** (like **user accounts** or **service accounts**) so it can make authorization decisions.
