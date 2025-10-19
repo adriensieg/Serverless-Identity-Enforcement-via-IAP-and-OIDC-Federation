@@ -1,38 +1,130 @@
-# Serverless Identity Enforcement via IAP and OIDC Federation
+# Serverless Identity Enforcement via IAP and OIDC WIF Federation with Azure Entra ID
 Zero-Trust OIDC Gateway: Azure Entra ID to Cloud Run via IAP
 
-## Architecture Overview
- 
+## OIDC + IAP Problem Explained
+We cannot implement **OIDC authentication** inside **our Cloud Run app** when **IAP is enabled** because of a *chicken-and-egg problem*:
+IAP handles authentication **BEFORE** Cloud Run. **IAP intercepts all requests at the Load Balancer**
+
+**The Authentication Deadlock**:
+- Our app needs to **handle OIDC callbacks** (from Azure Entra ID) to **authenticate users**
+- But Cloud Run **blocks all requests** without **valid IAP authentication**
+ - Cloud Run ingress setting: `"internal + load balancer"` = only accepts requests with valid IAP session
+ - **Ingress policy** only allows **authenticated traffic**
+- The **OIDC callback** can't reach our app because it's **not authenticated yet**
+ - **OIDC requirement**: Must receive unauthenticated callbacks to complete authentication
+ - **Result**: Our app cannot complete its own authentication flow
+- **Result**: `403 error` when Azure tries to redirect back to `/auth/login`
+ - The callback never reaches our container
+
+## What's Identity Aware Proxy? 
+- Identity-Aware Proxy (IAP) is called **"identity aware"** because it **makes access decisions** based on **who the user is** (**their identity**) rather than just where they're **connecting from** (**like an IP address or network location**).
+
+- **Traditional approach**: A firewall or VPN might say "allow traffic from this IP range" - it's **network-aware** but doesn't really know **who the individual user is**.
+- **Identity-Aware approach**: IAP authenticates each user and checks their specific identity (via Google accounts, Cloud Identity, etc.) before granting access to your applications. It asks "Is this specific person authorized?" rather than "Is this request from an authorized network?"
+
+#### How IAP Works (High-Level — Google Cloud Example)
+1. **User Request**: A user attempts to access an application URL protected by IAP.
+2. **Redirection to Identity Provider**: IAP **intercepts the request** and **redirects the user to our configured identity provider** (~~e.g., Google Sign-In~~) if they don’t have **a valid session**.
+3. **Authentication**: The user authenticates with the identity provider.
+4. **Token & Identity Assertion**: Upon successful authentication, the identity provider **issues an identity token to IAP**.
+5. **Authorization Check**: IAP **verifies the user’s identity** and checks against **IAM policies** to determine **if they are authorized to access the requested resource**. It can also check against **Access Context Manager policies**.
+6. **Request Forwarding (with Identity)**: If authorized, IAP **forwards the request to the backend application**. Crucially, IAP adds **signed headers** (e.g., `X-Goog-Authenticated-User-Email`, `X-Goog-Authenticated-User-Id`, `X-Goog-IAP-JWT-Assertion`) containing the **verified user's identity**.
+7.	**Application Logic (Optional)**: Your application can (and often should) **use these headers for further fine-grained**, **in-app authorization** or **personalization**.
+8.	**Backend Firewall**: Our backend service (e.g., GCE instances, App Engine, GKE) should be **firewalled to only accept traffic from IAP’s known IP ranges** or its specific proxy mechanism.
+
+## Why do I need Workforce Identity Federation? 
+(“I don’t want my internal users synced to Google”?)[https://medium.com/@oluakin/implementing-external-authentication-using-identity-aware-proxy-iap-quick-tips-093d60c8a9b4]
+
+- **IAP** needs to **understand identities** in **Google Cloud's terms**.
+- It needs to **map external identities** to **Google Cloud principals** (like **user accounts** or **service accounts**) so it can make authorization decisions.
+  
+- *The solution*: Workforce Identity Federation allows us to:
+ - **Federate our Azure Entra ID** - Set up a trust relationship between Google Cloud and your Azure tenant
+ - **Map external identities** - Configure how Azure Entra ID users/groups map to Google Cloud principals
+ - **Authenticate without Cloud Identity** - Users sign in with their Azure credentials, and Google Cloud recognizes them through federation
+
+
+IAP handles the OIDC flow for you! You don't need to implement it in your app.
+Here's what happens:
+Fully managed by IAP:
+
+IAP acts as the OIDC client
+When a user hits your app, IAP intercepts the request
+IAP redirects them to authenticate with Azure Entra ID (via Workforce Identity Federation)
+Azure authenticates the user and returns tokens
+IAP validates everything and handles the token exchange
+If authorized, IAP forwards the request to your app with identity headers
+
+Your app receives:
+
+The request already authenticated
+Identity information in HTTP headers (like X-Goog-IAP-JWT-Assertion)
+You can optionally validate the IAP JWT if you want extra security, but the heavy lifting is done
+
+What you configure (not implement):
+
+Set up Workforce Identity Federation with Azure Entra ID in Google Cloud
+Configure IAP to use that federation
+Set IAP access policies (who can access what)
+
+# Architecture Overview
+## Context and Requirements
 - Multiple **Dockerized applications** are deployed on Google **Cloud Run**.
     - https://ailab.com/ - this is the landing page
     - https://ailab.com/login
     - https://ailab.com/logout
     - https://ailab.com/service-desk
     - https://ailab.com/marketing-immersion 
-    - https://ailab.com/asset-scanning 
-- Each service has **Ingress restricted** to “internal + load balancer” — **direct external access to run.app URLs is denied**.
-- All applications are fronted by a **Global HTTPS Load Balancer** configured with **Serverless Network Endpoint Groups** (**NEGs**) pointing to the respective **Cloud Run services**.
-- The domain `ailab.com` routes via this **Load Balancer** (e.g., `/`, `/login`, `/service-desk`, etc.).
-- A **Google-managed SSL certificate** and **URL map** handle **HTTPS termination** and **routing**.
+    - https://ailab.com/asset-scanning
+- The platform must be **publicly accessible** (Internet-facing) but **securely authenticated** — **no direct access to Cloud Run’s `run.app` endpoints**.
+- Each service has **Ingress restricted** to `“internal + load balancer”` — **direct external access to run.app URLs is denied**.
+- **Identity Platform** cannot be used due to corporate policy constraints.
+- Authentication and SSO must be handled via **Azure Entra ID (OIDC)** with **cookie-based sessions**.
+- **User identity** (email, groups) must be available to backend apps for Row-Level Security (RLS) and personalization.
 
-## Access and Authentication Requirements
-- Applications must be accessible **publicly** (Internet-facing) but **deny direct access to Cloud Run endpoints**.
-- All requests must pass through the **Load Balancer** and **authentication layer**.
-- **Unauthenticated** or **unauthorized requests** must be **blocked** without exception.
-- Authentication uses **OIDC** with **Azure Entra ID** (Microsoft AD-backed IdP).
-- The solution must implement **SSO with cookie-based sessions** and **user-based RLS** (Row-Level Security) in backend services.
-- Backend apps require access to a **verified user identity** (`ID token`, `email`, `groups`) for **access control** and **personalization**.
+## Network and Access Architecture
+- Each Cloud Run service has Ingress restricted to “Internal + Load Balancer” — denies direct Internet access.
+- A Global HTTPS Load Balancer (GCLB) fronts all services using Serverless Network Endpoint Groups (NEGs).
+- The domain (ailab.com) routes through the GCLB using a Google-managed SSL certificate and URL map for path-based routing.
+- All traffic flows through this path:
+```
+User → HTTPS LB (TLS termination) → IAP (auth) → Serverless NEG → Cloud Run → Container.
+```
 
-## Problem Statement
-- Cloud Run’s **ingress restriction** causes **403 errors** for **IdP callback requests** (`/auth/login`), because the service blocks **unauthenticated requests before the OIDC flow completes**.
-    - Cloud Run’s **ingress** is **internal + Load Balancer only**, so it **rejects requests** that **don’t already have a valid IAP session**.
-- Current setup **cannot complete the OIDC redirect cycle within the app itself** — **the callback is never seen by the container due to ingress policy**.
-- You need to maintain both:
-    - **Public accessibility via Load Balancer**, and
-    - **Strict access control** that prevents direct `run.app` or bypass traffic.
+## Authentication and Authorization via IAP
+- Identity-Aware Proxy (IAP) is enabled on the backend service (Serverless NEG).
+- IAP performs full OIDC Authorization Code Flow with Azure Entra ID — the application does not handle OIDC directly.
+- Workforce Identity Federation (WIF) bridges Azure Entra identities with Google Cloud:
+- Establishes trust between Azure Entra and Google Cloud.
+- Maps Azure users/groups to Google Cloud principals.
+- Allows IAP to recognize and authorize users without Cloud Identity accounts.
+- IAP sets a secure HttpOnly session cookie (IAP_SID) for SSO.
+- Only authenticated and authorized requests are forwarded to Cloud Run.
 
+## Identity Propagation to Cloud Run
+- IAP injects signed identity headers:
+ - `X-Goog-Authenticated-User-Email` – user email (for convenience).
+ - `X-Goog-Authenticated-User-ID` – unique user identifier.
+ - `x-goog-iap-jwt-assertion` – signed JWT assertion with verified user claims.
+   
+- Cloud Run services must:
+ - Validate the JWT using Google’s public keys (JWKS).
+ - Check issuer, audience, expiration, and email/sub claims.
+ - Use claims for RLS and access control decisions.
 
-## Flow
+## Security Enforcement
+Cloud Run ingress policy ensures only the Load Balancer/IAP can reach the service.
+Direct access via run.app URLs is completely denied.
+IAP handles authentication externally, preventing “403-before-OIDC” issues — apps receive only validated, identity-bearing requests.
+Session SSO managed entirely by IAP; cookies are secure, domain-bound, and non-extractable by apps.
+
+## Workforce Identity Federation (WIF) Integration
+- Azure Entra users authenticate via OIDC/SAML.
+- WIF exchanges the Azure assertion for a short-lived Google STS token.
+- Optional Service Account impersonation can grant scoped access to Google APIs without native Google accounts.
+- Enables full identity continuity across Azure and Google without duplicating users in Cloud Identity.
+
+# Flow
 
 ```mermaid
 sequenceDiagram
@@ -112,33 +204,16 @@ sequenceDiagram
 ```
 
 ## Summary
-
-| Concern                                | Resolution                                           |
-| -------------------------------------- | ---------------------------------------------------- |
-| Direct `run.app` access                | Restrict Cloud Run ingress to LB + IAP               |
-| OIDC callback 403                      | Offload OIDC to IAP                                  |
-| Authenticated user identity to backend | Validate `x-goog-iap-jwt-assertion`                  |
-| Central IdP (Azure Entra)              | Use as OIDC provider for IAP                         |
-| No Identity Platform allowed           | Use Workforce Identity Federation for GCP IAM access |
-
-## Key elements
-
-## How IAP Works (High-Level — Google Cloud Example)
-
-1. **User Request**: A user attempts to access an application URL protected by IAP.
-2. **Redirection to Identity Provider**: IAP **intercepts the request** and **redirects the user to our configured identity provider** (~~e.g., Google Sign-In~~) if they don’t have **a valid session**.
-3. **Authentication**: The user authenticates with the identity provider.
-4. **Token & Identity Assertion**: Upon successful authentication, the identity provider **issues an identity token to IAP**.
-5. **Authorization Check**: IAP **verifies the user’s identity** and checks against **IAM policies** to determine **if they are authorized to access the requested resource**. It can also check against **Access Context Manager policies**.
-6. **Request Forwarding (with Identity)**: If authorized, IAP **forwards the request to the backend application**. Crucially, IAP adds **signed headers** (e.g., `X-Goog-Authenticated-User-Email`, `X-Goog-Authenticated-User-Id`, `X-Goog-IAP-JWT-Assertion`) containing the **verified user's identity**.
-7.	**Application Logic (Optional)**: Your application can (and often should) **use these headers for further fine-grained**, **in-app authorization** or **personalization**.
-8.	**Backend Firewall**: Our backend service (e.g., GCE instances, App Engine, GKE) should be **firewalled to only accept traffic from IAP’s known IP ranges** or its specific proxy mechanism.
-
+- **Complies with policy**: Avoids Identity Platform while achieving federated SSO.
+- **Centralized auth**: IAP handles OIDC, token validation, and sessions — apps stay stateless and simple.
+- **End-to-end identity assurance**: Every request carries a signed, verifiable identity from Azure Entra ID through Google IAP to Cloud Run.
+- **Strong perimeter security**: No public Cloud Run endpoints; all access enforced via HTTPS LB + IAP.
+- **Operational simplicity**: No custom auth code, token storage, or redirect handling inside applications.
+- **Seamless federation**: WIF maps Azure users directly into Google’s access model for consistent policy enforcement.
+- **Scalable and secure**: Fully managed authentication and load balancing for multiple independent microservices.
+  
 ## Bibliography
 - https://medium.com/google-cloud/nuts-and-bolts-of-negs-network-endpoint-groups-in-gcp-35b0d06f4691
 - https://medium.com/google-cloud/fortifying-your-cloud-zero-trust-with-identity-aware-proxy-iap-ba4a69124e40
-
-
-
 
 
