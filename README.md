@@ -20,13 +20,13 @@ IAP handles authentication **BEFORE** Cloud Run. **IAP intercepts all requests a
 **The Authentication Deadlock**:
 - Our app needs to **handle OIDC callbacks** (from Azure Entra ID) to **authenticate users**
 - But Cloud Run **blocks all requests** without **valid IAP authentication**
- - Cloud Run ingress setting: `"internal + load balancer"` = only accepts requests with valid IAP session
- - **Ingress policy** only allows **authenticated traffic**
+  - Cloud Run ingress setting: `"internal + load balancer"` = only accepts requests with valid IAP session
+  - **Ingress policy** only allows **authenticated traffic**
 - The **OIDC callback** can't reach our app because it's **not authenticated yet**
- - **OIDC requirement**: Must receive unauthenticated callbacks to complete authentication
- - **Result**: Our app cannot complete its own authentication flow
+  - **OIDC requirement**: Must receive unauthenticated callbacks to complete authentication
+  - **Result**: Our app cannot complete its own authentication flow
 - **Result**: `403 error` when Azure tries to redirect back to `/auth/login`
- - The callback never reaches our container
+  - The callback never reaches our container
 
 ## What's Identity Aware Proxy? 
 - Identity-Aware Proxy (IAP) is called **"identity aware"** because it **makes access decisions** based on **who the user is** (**their identity**) rather than just where they're **connecting from** (**like an IP address or network location**).
@@ -51,9 +51,9 @@ IAP handles authentication **BEFORE** Cloud Run. **IAP intercepts all requests a
 - It needs to **map external identities** to **Google Cloud principals** (like **user accounts** or **service accounts**) so it can make authorization decisions.
   
 - *The solution*: Workforce Identity Federation allows us to:
- - **Federate our Azure Entra ID** - Set up a trust relationship between Google Cloud and your Azure tenant
- - **Map external identities** - Configure how Azure Entra ID users/groups map to Google Cloud principals
- - **Authenticate without Cloud Identity** - Users sign in with their Azure credentials, and Google Cloud recognizes them through federation
+  - **Federate our Azure Entra ID** - Set up a trust relationship between Google Cloud and your Azure tenant
+  - **Map external identities** - Configure how Azure Entra ID users/groups map to Google Cloud principals
+  - **Authenticate without Cloud Identity** - Users sign in with their Azure credentials, and Google Cloud recognizes them through federation
 
 **IAP handles the OIDC flow for us!** We don't need to implement it in our app.
 - **IAP** acts as the **OIDC client**
@@ -63,9 +63,9 @@ IAP handles authentication **BEFORE** Cloud Run. **IAP intercepts all requests a
 - **IAP validates** everything and handles the **token exchange**
 - If authorized, IAP forwards the request to our app with **identity headers**
 - Our app receives:
- - The **request already authenticated**
- - **Identity information in HTTP headers** (like `X-Goog-IAP-JWT-Assertion`)
- - We can optionally validate the **IAP JWT** if we want extra security, but the heavy lifting is done
+  - The **request already authenticated**
+  - **Identity information in HTTP headers** (like `X-Goog-IAP-JWT-Assertion`)
+  - We can optionally validate the **IAP JWT** if we want extra security, but the heavy lifting is done
 
 **What you configure (not implement)**:
 - Set up **Workforce Identity Federation with Azure Entra ID in Google Cloud**
