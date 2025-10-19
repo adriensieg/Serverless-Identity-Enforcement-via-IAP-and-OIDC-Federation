@@ -35,75 +35,80 @@ Zero-Trust OIDC Gateway: Azure Entra ID to Cloud Run via IAP
 ## Flow
 
 ```mermaid
-flowchart TB
-  %% Nodes
-  User[User<br/>(browser)]
-  subgraph GCLB["Global HTTPS Load Balancer\n(ailab.com)"]
-    LB_TLS[ TLS Termination<br/>(Google-managed cert) ]
-    IAP["IAP (Identity-Aware Proxy)\nHandles OIDC w/ Azure Entra via WIF\nSets IAP_SID cookie"]
-  end
+sequenceDiagram
+    participant User as User<br/>(Browser)
+    participant LB as Global HTTPS LB<br/>(ailab.com)
+    participant IAP as IAP<br/>(Identity-Aware Proxy)
+    participant Azure as Azure Entra ID<br/>(IdP)
+    participant STS as Google STS<br/>(WIF)
+    participant NEG as Serverless NEG<br/>(Router)
+    participant CR as Cloud Run Service
+    participant JWKS as Google JWKS<br/>(Public Keys)
+    participant App as Application<br/>(with RLS)
 
-  subgraph WIF["Workforce Identity Federation"]
-    Azure["Azure Entra ID\n(IdP)"]
-    STS["Google STS / Federation\nMaps Azure identities → Google principals"]
-  end
+    %% Initial Request
+    User->>+LB: HTTPS Request to ailab.com/service
+    Note over LB: TLS Termination<br/>(Google-managed cert)
+    LB->>+IAP: Forward request
 
-  subgraph ServerlessNEG["Serverless NEG (per service)"]
-    NEG1["NEG: / (landing)"]
-    NEG2["NEG: /login"]
-    NEG3["NEG: /service-desk"]
-    NEG4["NEG: /marketing-immersion"]
-    NEG5["NEG: /asset-scanning"]
-  end
+    %% Check Authentication
+    alt No valid IAP_SID cookie
+        IAP->>User: Redirect to Azure Entra<br/>(OIDC Auth Code Flow)
+        User->>Azure: Authentication request
+        Note over Azure: User authenticates<br/>(MFA if required)
+        Azure->>User: Auth code + redirect
+        User->>IAP: Return with auth code
+        
+        %% Token Exchange
+        IAP->>Azure: Exchange code for token
+        Azure->>IAP: ID token + assertions
+        
+        %% Workforce Identity Federation
+        IAP->>+STS: Exchange Azure token<br/>via WIF
+        Note over STS: Map Azure identity<br/>to Google principal
+        STS-->>-IAP: Google-federated identity
+        
+        %% Set Session
+        IAP->>User: Set IAP_SID cookie
+        Note over IAP: Session established
+    else Valid IAP_SID cookie exists
+        Note over IAP: Validate existing session
+    end
 
-  subgraph CloudRun["Cloud Run (each service)\nIngress: Internal + LB only"]
-    CR1["Cloud Run: landing\nValidate IAP JWT (JWKS)"]
-    CR2["Cloud Run: login\nValidate IAP JWT (JWKS)"]
-    CR3["Cloud Run: service-desk\nValidate IAP JWT (JWKS)"]
-    CR4["Cloud Run: marketing\nValidate IAP JWT (JWKS)"]
-    CR5["Cloud Run: asset-scan\nValidate IAP JWT (JWKS)"]
-  end
+    %% Generate IAP JWT
+    Note over IAP: Generate signed JWT<br/>with user claims
 
-  subgraph Backend["App Container / RLS"]
-    APP["App: enforce RLS using\nclaims (email, groups, sub)"]
-  end
+    %% Forward to Backend
+    IAP->>+NEG: Authenticated request<br/>+ Headers:<br/>- x-goog-iap-jwt-assertion<br/>- X-Goog-Authenticated-User-Email<br/>- X-Goog-Authenticated-User-ID
+    
+    %% Route to Cloud Run
+    Note over NEG: Route based on path:<br/>/ → landing<br/>/login → login<br/>/service-desk → service-desk<br/>/marketing-immersion → marketing<br/>/asset-scanning → asset-scan
+    
+    NEG->>+CR: Forward to appropriate service<br/>(Internal + LB only ingress)
+    
+    %% JWT Validation
+    CR->>+JWKS: Fetch public keys
+    JWKS-->>-CR: Return JWKS
+    
+    Note over CR: Validate JWT:<br/>- Verify signature<br/>- Check issuer (iss)<br/>- Check audience (aud)<br/>- Check expiration (exp)<br/>- Extract claims
+    
+    alt JWT Valid
+        CR->>+App: Forward request with<br/>validated claims
+        Note over App: Apply Row-Level Security<br/>using claims:<br/>- email<br/>- groups<br/>- subject (sub)
+        App-->>-CR: Process request with RLS
+        CR-->>-NEG: Response
+        NEG-->>-IAP: Response
+        IAP-->>-LB: Response
+        LB-->>-User: Response
+    else JWT Invalid
+        CR-->>NEG: 401 Unauthorized
+        NEG-->>IAP: 401 Unauthorized
+        IAP-->>LB: 401 Unauthorized
+        LB-->>User: 401 Unauthorized
+    end
 
-  %% Edges
-  User -->|HTTPS request to ailab.com| LB_TLS
-  LB_TLS --> IAP
-  IAP -->|Redirect (OIDC Auth Code)→Azure| Azure
-  Azure -->|OIDC token/assertion| IAP
-  IAP -->|Exchange via WIF → Google STS| STS
-  STS -->|Federated Google identity| IAP
-
-  IAP -->|Authenticated request\nSets cookie IAP_SID\nInjects headers:\n- x-goog-iap-jwt-assertion\n- X-Goog-Authenticated-User-Email\n- X-Goog-Authenticated-User-ID| ServerlessNEG
-
-  %% NEG -> Cloud Run
-  NEG1 --> CR1
-  NEG2 --> CR2
-  NEG3 --> CR3
-  NEG4 --> CR4
-  NEG5 --> CR5
-
-  %% Cloud Run validation + app
-  CR1 -->|Verify IAP JWT (JWKS)\nCheck iss, aud, exp, claims| APP
-  CR2 -->|Verify IAP JWT (JWKS)| APP
-  CR3 -->|Verify IAP JWT (JWKS)| APP
-  CR4 -->|Verify IAP JWT (JWKS)| APP
-  CR5 -->|Verify IAP JWT (JWKS)| APP
-
-  %% Security annotations
-  classDef sec fill:#f9f,stroke:#333,stroke-width:1px;
-  class CloudRun sec;
-  class ServerlessNEG sec;
-  class IAP sec;
-  class WIF sec;
-
-  %% Notes
-  click IAP "https://cloud.google.com/iap" "IAP (docs)"
-  class LB_TLS,Azure,STS,APP internal;
-
-  style User stroke:#333,stroke-width:1px
+    %% Subsequent Requests
+    Note over User,App: Subsequent requests use<br/>IAP_SID cookie for session<br/>(no Azure roundtrip needed)
 ```
 
 ## Summary
