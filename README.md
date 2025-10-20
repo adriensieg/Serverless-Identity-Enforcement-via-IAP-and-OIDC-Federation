@@ -216,6 +216,56 @@ sequenceDiagram
 - **Operational simplicity**: No custom auth code, token storage, or redirect handling inside applications.
 - **Seamless federation**: WIF maps Azure users directly into Google’s access model for consistent policy enforcement.
 - **Scalable and secure**: Fully managed authentication and load balancing for multiple independent microservices.
+
+# Implementation
+
+### 1. Set Up the Foundation
+
+##### A. Google Cloud Project
+
+```
+export PROJECT_ID="your-project-id"
+gcloud config set project $PROJECT_ID
+
+# Enable required APIs
+gcloud services enable run.googleapis.com
+gcloud services enable iap.googleapis.com
+gcloud services enable compute.googleapis.com
+gcloud services enable iam.googleapis.com
+gcloud services enable certificatemanager.googleapis.com
+```
+##### B. Create our Cloud Run Services
+- Dockerfile
+- Python - fastapi
+- templates/index.html
+- static/script.js
+- static/styles.css
+- requirements.txt
+
+```
+# Build and deploy each service
+gcloud run deploy landing-page \
+  --source . \
+  --region us-central1 \
+  --platform managed \
+  --ingress internal-and-cloud-load-balancing \
+  --allow-unauthenticated
+```
+
+### 2. Set Up Workforce Identity Federation
+
+##### Configure Azure Entra ID Application
+In Azure Portal:
+- Go to Azure Active Directory → **App registrations**
+- Click **New registration**
+- Name: "AILab Google Cloud IAP"
+- **Redirect URI**: `https://iap.googleapis.com/v1/oauth/clientIds/[CLIENT_ID]:handleRedirect`
+(We'll update this later with actual **CLIENT_ID**)
+
+Note down:
+- **Application (client) ID**
+- **Directory (tenant) ID**
+- Create a **client secret** and note it
   
 ## Bibliography
 - https://medium.com/google-cloud/nuts-and-bolts-of-negs-network-endpoint-groups-in-gcp-35b0d06f4691
