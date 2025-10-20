@@ -220,5 +220,9 @@ sequenceDiagram
 ## Bibliography
 - https://medium.com/google-cloud/nuts-and-bolts-of-negs-network-endpoint-groups-in-gcp-35b0d06f4691
 - https://medium.com/google-cloud/fortifying-your-cloud-zero-trust-with-identity-aware-proxy-iap-ba4a69124e40
+- [Configuring Google as a federated identity provider in AWS Cognito](https://www.youtube.com/watch?v=ruPCv3qaZIs&t=302s)
+- [Workforce Identity Federation and IAP (Identity-Aware Proxy) in GCP: a working example](https://medium.com/@jt151077/workforce-identity-federation-and-iap-identity-aware-proxy-in-gcp-a-working-example-76db527174b3)
+- [Secure Cloud Run With Auth0 and Workforce Identity Federation](https://www.wallacesharpedavidson.nz/post/workforce-identity-auth0-cloudrun-iap/)
+- [How to leverage Google Cloud Identity Aware Proxy with External Identities](https://www.youtube.com/watch?v=qAjecymWK88&t=1568s)
 
 
