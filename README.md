@@ -253,12 +253,11 @@ gcloud run deploy landing-page \
 ```
 
 ### 2. Set Up Workforce Identity Federation
-
 ##### Configure Azure Entra ID Application
-In Azure Portal:
+In *Azure Portal*:
 - Go to Azure Active Directory → **App registrations**
 - Click **New registration**
-- Name: "AILab Google Cloud IAP"
+- *Name*: "AILab Google Cloud IAP"
 - **Redirect URI**: `https://iap.googleapis.com/v1/oauth/clientIds/[CLIENT_ID]:handleRedirect`
 (We'll update this later with actual **CLIENT_ID**)
 
@@ -266,13 +265,88 @@ Note down:
 - **Application (client) ID**
 - **Directory (tenant) ID**
 - Create a **client secret** and note it
-  
+
+##### Create Workforce Identity Pool
+
+```
+# Create the pool
+gcloud iam workforce-pools create ailab-workforce \
+  --location global \
+  --description "AILab Workforce Pool for Azure AD"
+
+# Create the provider
+gcloud iam workforce-pools providers create-oidc azure-provider \
+  --location global \
+  --workforce-pool ailab-workforce \
+  --issuer-uri "https://login.microsoftonline.com/YOUR_TENANT_ID/v2.0" \
+  --client-id "YOUR_AZURE_APP_CLIENT_ID" \
+  --client-secret-value "YOUR_AZURE_CLIENT_SECRET" \
+  --web-sso-response-type "code" \
+  --web-sso-assertion-claims-behavior merge \
+  --web-sso-additional-scopes "openid,profile,email" \
+  --attribute-mapping "google.subject=assertion.sub,google.groups=assertion.groups,attribute.email=assertion.email"
+```
+
+### 3. Set Up Load Balancer and NEGs
+##### Create Backend Services with NEGs
+
+```
+# Create a NEG for each Cloud Run service
+gcloud compute network-endpoint-groups create landing-page-neg \
+  --region us-central1 \
+  --network-endpoint-type serverless \
+  --cloud-run-service landing-page
+
+# Create backend service
+gcloud compute backend-services create ailab-backend \
+  --global \
+  --load-balancing-scheme EXTERNAL_MANAGED
+
+# Add the NEG to backend service
+gcloud compute backend-services add-backend ailab-backend \
+  --global \
+  --network-endpoint-group landing-page-neg \
+  --network-endpoint-group-region us-central1
+```
+
+##### Configure URL Map for Path Routing
+
+```
+# url-map.yaml
+defaultService: https://www.googleapis.com/compute/v1/projects/PROJECT_ID/global/backendServices/landing-page-backend
+hostRules:
+  - hosts:
+      - ailab.com
+    pathMatcher: ailab-paths
+pathMatchers:
+  - name: ailab-paths
+    defaultService: https://www.googleapis.com/compute/v1/projects/PROJECT_ID/global/backendServices/landing-page-backend
+    pathRules:
+      - paths:
+          - /login
+        service: https://www.googleapis.com/compute/v1/projects/PROJECT_ID/global/backendServices/login-backend
+      - paths:
+          - /logout
+        service: https://www.googleapis.com/compute/v1/projects/PROJECT_ID/global/backendServices/logout-backend
+      - paths:
+          - /service-desk
+        service: https://www.googleapis.com/compute/v1/projects/PROJECT_ID/global/backendServices/service-desk-backend
+```
+Apply it:
+```
+gcloud compute url-maps import ailab-url-map \
+  --source url-map.yaml \
+  --global
+```
+
+
 ## Bibliography
 - https://medium.com/google-cloud/nuts-and-bolts-of-negs-network-endpoint-groups-in-gcp-35b0d06f4691
 - https://medium.com/google-cloud/fortifying-your-cloud-zero-trust-with-identity-aware-proxy-iap-ba4a69124e40
 - [Configuring Google as a federated identity provider in AWS Cognito](https://www.youtube.com/watch?v=ruPCv3qaZIs&t=302s)
 - [Workforce Identity Federation and IAP (Identity-Aware Proxy) in GCP: a working example](https://medium.com/@jt151077/workforce-identity-federation-and-iap-identity-aware-proxy-in-gcp-a-working-example-76db527174b3)
 - [Secure Cloud Run With Auth0 and Workforce Identity Federation](https://www.wallacesharpedavidson.nz/post/workforce-identity-auth0-cloudrun-iap/)
-- [How to leverage Google Cloud Identity Aware Proxy with External Identities](https://www.youtube.com/watch?v=qAjecymWK88&t=1568s)
+- [How to leverage Google Cloud Identity Aware Proxy with External Identities](https://www.youtube.com/watch?v=qAjecymWK88&t=1568s
+- [https://cloud.google.com/iap/docs/use-workforce-identity-federation](https://cloud.google.com/iap/docs/use-workforce-identity-federation)
 
 
