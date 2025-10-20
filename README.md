@@ -98,13 +98,13 @@ User → HTTPS LB (TLS termination) → IAP (auth) → Serverless NEG → Cloud 
 
 ## Authentication and Authorization via IAP
 - Identity-Aware Proxy (IAP) is enabled on the backend service (Serverless NEG).
-- IAP performs full OIDC Authorization Code Flow with Azure Entra ID — the application does not handle OIDC directly.
+- **IAP performs full OIDC Authorization Code Flow with Azure Entra ID** — **the application does not handle OIDC directly**.
 - Workforce Identity Federation (WIF) bridges Azure Entra identities with Google Cloud:
-- Establishes trust between Azure Entra and Google Cloud.
-- Maps Azure users/groups to Google Cloud principals.
-- Allows IAP to recognize and authorize users without Cloud Identity accounts.
-- IAP sets a secure HttpOnly session cookie (IAP_SID) for SSO.
-- Only authenticated and authorized requests are forwarded to Cloud Run.
+  - **Establishes trust** between Azure Entra and Google Cloud.
+  - **Maps Azure users/groups to Google Cloud principals**.
+  - Allows IAP to **recognize** and **authorize** users **without Cloud Identity accounts**.
+  - IAP sets a secure `HttpOnly` session cookie (**IAP_SID**) for SSO.
+- Only **authenticated** and **authorized** requests are forwarded to Cloud Run.
 
 ## Identity Propagation to Cloud Run
 - IAP injects **signed identity headers**:
