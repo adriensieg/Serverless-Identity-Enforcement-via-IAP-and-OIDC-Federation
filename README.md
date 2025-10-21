@@ -350,3 +350,6 @@ gcloud compute url-maps import ailab-url-map \
 - [https://cloud.google.com/iap/docs/use-workforce-identity-federation](https://cloud.google.com/iap/docs/use-workforce-identity-federation)
 
 
+- [Configure Custom Domain in GCP with DNS | Web Server | Virtual Machine](https://cloud.google.com/iap/docs/use-workforce-identity-federation](https://www.youtube.com/watch?v=g1KKI7JVJH8&t=465s)
+
+
