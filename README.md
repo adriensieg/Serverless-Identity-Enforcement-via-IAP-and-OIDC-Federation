@@ -1,7 +1,7 @@
 # Serverless Identity Enforcement via IAP and OIDC WIF Federation with Azure Entra ID
 - [OIDC + IAP Problem Explained](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#oidc--iap-problem-explained)
 - [What's Identity Aware Proxy?](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#whats-identity-aware-proxy)
-- [Workforce Identity Federation (WIF)]()
+- [Workforce Identity Federation (WIF)](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/tree/master?tab=readme-ov-file#workforce-identity-federation-wif)
 - [Why do I need Workforce Identity Federation?](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#why-do-i-need-workforce-identity-federation)
 - [Architecture Overview](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#architecture-overview)
  - [Context and Requirements](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#context-and-requirements)
