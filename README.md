@@ -1,6 +1,7 @@
 # Serverless Identity Enforcement via IAP and OIDC WIF Federation with Azure Entra ID
 - [OIDC + IAP Problem Explained](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#oidc--iap-problem-explained)
 - [What's Identity Aware Proxy?](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#whats-identity-aware-proxy)
+- [Workforce Identity Federation (WIF)]()
 - [Why do I need Workforce Identity Federation?](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#why-do-i-need-workforce-identity-federation)
 - [Architecture Overview](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#architecture-overview)
  - [Context and Requirements](https://github.com/adriensieg/Serverless-Identity-Enforcement-via-IAP-and-OIDC-Federation/blob/master/README.md#context-and-requirements)
@@ -43,6 +44,17 @@ IAP handles authentication **BEFORE** Cloud Run. **IAP intercepts all requests a
 6. **Request Forwarding (with Identity)**: If authorized, IAP **forwards the request to the backend application**. Crucially, IAP adds **signed headers** (e.g., `X-Goog-Authenticated-User-Email`, `X-Goog-Authenticated-User-Id`, `X-Goog-IAP-JWT-Assertion`) containing the **verified user's identity**.
 7.	**Application Logic (Optional)**: Your application can (and often should) **use these headers for further fine-grained**, **in-app authorization** or **personalization**.
 8.	**Backend Firewall**: Our backend service (e.g., GCE instances, App Engine, GKE) should be **firewalled to only accept traffic from IAP’s known IP ranges** or its specific proxy mechanism.
+
+## Workforce Identity Federation (WIF)
+**Workforce Identity Federation (WIF)** in Google Cloud is designed to **let external identities** (like those from Azure Entra, Okta, Auth0, etc.) **authenticate to Google Cloud without needing Google-managed accounts** (Cloud Identity or Workspace).
+
+*Do my Azure Entra ID and my google gcp project should have the same domain or can they have 2 different separate domains?*
+
+No, they do not need to share the same domain.
+Our **Azure Entra tenant** and our **Google Cloud project** can have completely **separate domains** — federation explicitly exists to connect **independent identity domains securely**.
+
+That’s why domain matching is not required — **Google doesn’t verify that the email domain** in Entra (user@company.com) matches the **project’s domain** (gcp-project-123.iam.gserviceaccount.com).
+Instead, WIF establishes **trust at the OIDC level**: Trust = “Google Cloud trusts tokens issued by this Azure Entra OIDC endpoint (`https://login.microsoftonline.com/<tenant-id>/v2.0`) as valid identities.”
 
 ## Why do I need Workforce Identity Federation? 
 [“I don’t want my internal users synced to Google”?](https://medium.com/@oluakin/implementing-external-authentication-using-identity-aware-proxy-iap-quick-tips-093d60c8a9b4)
